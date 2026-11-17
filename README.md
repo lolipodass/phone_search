@@ -66,6 +66,18 @@ Open http://localhost:3000.
 
 Digits `1`-`5` work directly whenever focus is not in a text field. While typing a query, press `*` (or `#`) first to arm a one-shot command — the status line confirms it. The mode and panel selectors are plain buttons with visible number badges, so they also work by click/tap or Tab + Enter on feature phones. A skip link appears at the top when focused.
 
+## Hidden secret links
+
+Nothing in the app advertises this feature — no button, label, or hint.
+
+- Type the 4-digit code (default `9241`) and the hidden panel opens as soon as the last digit is entered. The code must start with `9`, and `9` is not bound to any other action.
+- While the code is being entered, all digits are captured silently: pressing `2` after `9` will **not** switch to Google. A wrong code simply does nothing.
+- If focus is inside a text field, press `*` first, then the code, so the digits aren't typed into the field.
+- Press `0` to lock again. The secret links are immediately dropped from memory, and switching to History or Links via `4`/`5` does the same.
+- Searching while unlocked **never writes to history**. Secret links live in their own table and every request to `/api/secret-bookmarks` must carry the code in an `x-secret-code` header.
+- Change the code with the `NEXT_PUBLIC_SECRET_CODE` build variable (keep it 4 digits starting with 9). Because a 4-digit code is short, treat this as hiding links from casual users, not strong security.
+- Run the updated `supabase/schema.sql` again so the `secret_bookmarks` table is created.
+
 ## Notes
 
 - Direct URLs are normalized to `http(s)` and rejected if they use another scheme.

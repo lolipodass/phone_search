@@ -9,8 +9,9 @@ import {
   type HistoryItem,
 } from '@/lib/types';
 import { hostnameOf, normalizeUrl, searchUrl } from '@/lib/url';
+import { SECRET_CODE } from '@/lib/config';
 
-type View = 'history' | 'links';
+type View = 'history' | 'links' | 'secret';
 
 export default function SearchApp() {
   const [engine, setEngine] = useState<Engine>('ddg');
@@ -23,12 +24,19 @@ export default function SearchApp() {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [commandArmed, setCommandArmed] = useState(false);
+  const [secretBookmarks, setSecretBookmarks] = useState<Bookmark[]>([]);
+  const [secretLabel, setSecretLabel] = useState('');
+  const [secretUrl, setSecretUrl] = useState('');
+  const [secretLoading, setSecretLoading] = useState(false);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const labelRef = useRef<HTMLInputElement>(null);
+  const secretLabelRef = useRef<HTMLInputElement>(null);
   const historyRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const bookmarkRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const secretRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const commandArmedRef = useRef(false);
+  const passwordBufferRef = useRef('');
 
   /** Wait one tick so a focus target exists after a view switch re-renders. */
   const focusLater = (getNode: () => HTMLElement | null | undefined) => {
@@ -36,6 +44,11 @@ export default function SearchApp() {
   };
 
   const flash = (text: string) => setMessage(text);
+
+  const setCommandArmedState = (armed: boolean) => {
+    commandArmedRef.current = armed;
+    setCommandArmed(armed);
+  };
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -63,40 +76,46 @@ export default function SearchApp() {
     void loadAll();
   }, [loadAll]);
 
-  const runSearch = useCallback(async (text: string, selectedEngine: Engine) => {
-    const value = text.trim();
-    if (!value) {
-      flash('Type something to search.');
-      searchRef.current?.focus();
-      return;
-    }
-
-    let target = '';
-    if (selectedEngine === 'url') {
-      const normalized = normalizeUrl(value);
-      if (!normalized) {
-        flash('Enter a valid web address (http or https).');
+  const runSearch = useCallback(
+    async (text: string, selectedEngine: Engine, saveHistory = true) => {
+      const value = text.trim();
+      if (!value) {
+        flash('Type something to search.');
         searchRef.current?.focus();
         return;
       }
-      target = normalized;
-    } else {
-      target = searchUrl(selectedEngine, value);
-    }
 
-    // Save the search, but never let a storage failure block navigation.
-    try {
-      await fetch('/api/history', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: value, engine: selectedEngine }),
-      });
-    } catch {
-      // Search still works without history.
-    }
+      let target = '';
+      if (selectedEngine === 'url') {
+        const normalized = normalizeUrl(value);
+        if (!normalized) {
+          flash('Enter a valid web address (http or https).');
+          searchRef.current?.focus();
+          return;
+        }
+        target = normalized;
+      } else {
+        target = searchUrl(selectedEngine, value);
+      }
 
-    window.location.href = target;
-  }, []);
+      // Secret searches deliberately skip history. Elsewhere a storage failure
+      // must never block the search itself.
+      if (saveHistory) {
+        try {
+          await fetch('/api/history', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: value, engine: selectedEngine }),
+          });
+        } catch {
+          // Search still works without history.
+        }
+      }
+
+      window.location.href = target;
+    },
+    [],
+  );
 
   const addBookmark = useCallback(async () => {
     const cleanLabel = label.trim();
@@ -176,6 +195,105 @@ export default function SearchApp() {
     window.location.href = normalizeUrl(item.url) ?? item.url;
   }, []);
 
+  /** Leaving the hidden area forgets everything immediately. */
+  const lock = useCallback(() => {
+    setSecretBookmarks([]);
+    setSecretLabel('');
+    setSecretUrl('');
+    passwordBufferRef.current = '';
+    setCommandArmedState(false);
+    setView('history');
+  }, []);
+
+  const loadSecretBookmarks = useCallback(async () => {
+    setSecretLoading(true);
+    try {
+      const response = await fetch('/api/secret-bookmarks', {
+        headers: { 'x-secret-code': SECRET_CODE },
+        cache: 'no-store',
+      });
+      if (response.status === 401) {
+        lock();
+        return;
+      }
+      if (!response.ok) throw new Error('Could not load secret links.');
+      const data = await response.json();
+      setSecretBookmarks(data.items ?? []);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : 'Could not load secret links.');
+    } finally {
+      setSecretLoading(false);
+    }
+  }, [lock]);
+
+  const unlock = useCallback(() => {
+    setView('secret');
+    setMessage('');
+    void loadSecretBookmarks();
+    focusLater(() => searchRef.current);
+  }, [loadSecretBookmarks]);
+
+  const addSecretBookmark = useCallback(async () => {
+    const cleanLabel = secretLabel.trim();
+    const normalized = normalizeUrl(secretUrl);
+
+    if (!cleanLabel) {
+      flash('Give the link a name.');
+      secretLabelRef.current?.focus();
+      return;
+    }
+    if (!normalized) {
+      flash('Enter a valid web address (http or https).');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/secret-bookmarks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-secret-code': SECRET_CODE,
+        },
+        body: JSON.stringify({ label: cleanLabel, url: normalized }),
+      });
+      if (response.status === 401) {
+        lock();
+        return;
+      }
+      if (!response.ok) throw new Error('Could not save the secret link.');
+      setSecretLabel('');
+      setSecretUrl('');
+      setMessage('Saved.');
+      await loadSecretBookmarks();
+    } catch (error) {
+      flash(error instanceof Error ? error.message : 'Could not save the secret link.');
+    }
+  }, [secretLabel, secretUrl, loadSecretBookmarks, lock]);
+
+  const removeSecretBookmark = useCallback(
+    async (id: number) => {
+      try {
+        const response = await fetch(`/api/secret-bookmarks?id=${id}`, {
+          method: 'DELETE',
+          headers: { 'x-secret-code': SECRET_CODE },
+        });
+        if (response.status === 401) {
+          lock();
+          return;
+        }
+        if (!response.ok) throw new Error('Could not delete.');
+        setSecretBookmarks((current) => current.filter((item) => item.id !== id));
+      } catch {
+        flash('Could not delete that secret link.');
+      }
+    },
+    [lock],
+  );
+
+  const openSecretBookmark = useCallback((item: Bookmark) => {
+    window.location.href = normalizeUrl(item.url) ?? item.url;
+  }, []);
+
   const focusRow = (rows: Array<HTMLButtonElement | null>, index: number) => {
     if (!rows.length) return;
     const next = Math.max(0, Math.min(rows.length - 1, index));
@@ -187,24 +305,20 @@ export default function SearchApp() {
     focusLater(() => historyRefs.current[index] ?? null);
   };
 
-  const setCommandArmedState = (armed: boolean) => {
-    commandArmedRef.current = armed;
-    setCommandArmed(armed);
-  };
-
   /** 1-3 select the search mode, 4-5 select the panel, then focus its first control. */
   const applyShortcut = useCallback((digit: number) => {
     if (digit >= 1 && digit <= 3) {
       setEngine(ENGINES[digit - 1]);
       focusLater(() => searchRef.current);
     } else if (digit === 4) {
-      setView('history');
+      lock();
       focusLater(() => searchRef.current);
     } else if (digit === 5) {
+      lock();
       setView('links');
       focusLater(() => labelRef.current);
     }
-  }, []);
+  }, [lock]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -214,6 +328,31 @@ export default function SearchApp() {
         target?.tagName === 'TEXTAREA' ||
         target?.isContentEditable === true;
       const key = event.key;
+
+      // Once a code is being typed, every digit is captured silently. In
+      // particular the second digit must never run a normal 1-5 shortcut.
+      if (passwordBufferRef.current.length > 0) {
+        if (/^\d$/.test(key)) {
+          event.preventDefault();
+          const next = passwordBufferRef.current + key;
+          passwordBufferRef.current = next;
+          if (next.length === SECRET_CODE.length) {
+            passwordBufferRef.current = '';
+            if (next === SECRET_CODE) unlock();
+          }
+          return;
+        }
+        passwordBufferRef.current = '';
+        if (key === 'Escape') return;
+      }
+
+      // 9 is unbound on purpose; it only starts the hidden code sequence.
+      if (key === '9' && (!editing || commandArmedRef.current)) {
+        event.preventDefault();
+        setCommandArmedState(false);
+        passwordBufferRef.current = '9';
+        return;
+      }
 
       // Arm a one-shot command prefix. Needed while typing so digits stay usable
       // as normal characters in a search query.
@@ -241,16 +380,23 @@ export default function SearchApp() {
         return;
       }
 
+      // Undocumented: 0 silently leaves the hidden area and forgets its data.
+      if (key === '0' && view === 'secret') {
+        event.preventDefault();
+        lock();
+        return;
+      }
+
       if ((event.ctrlKey || event.metaKey) && key.toLowerCase() === 'k') {
         event.preventDefault();
-        goToHistoryRow(-1);
+        if (view !== 'secret') goToHistoryRow(-1);
         focusLater(() => searchRef.current);
         return;
       }
 
       if (key === '/' && !editing) {
         event.preventDefault();
-        goToHistoryRow(-1);
+        if (view !== 'secret') goToHistoryRow(-1);
         focusLater(() => searchRef.current);
         return;
       }
@@ -263,7 +409,7 @@ export default function SearchApp() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [applyShortcut]);
+  }, [applyShortcut, lock, unlock, view]);
 
   return (
     <main className="app">
@@ -294,7 +440,7 @@ export default function SearchApp() {
         className="search-row"
         onSubmit={(event) => {
           event.preventDefault();
-          void runSearch(query, engine);
+          void runSearch(query, engine, view !== 'secret');
         }}
       >
         <input
@@ -307,12 +453,22 @@ export default function SearchApp() {
           autoComplete="off"
           autoCapitalize="off"
           spellCheck={false}
-          placeholder={engine === 'url' ? 'https://site.com' : 'Search…'}
+          placeholder={
+            view === 'secret'
+              ? 'Search, no history…'
+              : engine === 'url'
+                ? 'https://site.com'
+                : 'Search…'
+          }
           aria-label={engine === 'url' ? 'Website address' : 'Search query'}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
-            if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && history.length) {
+            if (
+              view !== 'secret' &&
+              (event.key === 'ArrowDown' || event.key === 'ArrowUp') &&
+              history.length
+            ) {
               event.preventDefault();
               goToHistoryRow(0);
             }
@@ -336,7 +492,14 @@ export default function SearchApp() {
             className={`view${view === option ? ' active' : ''}`}
             aria-pressed={view === option}
             aria-keyshortcuts={String(index + 4)}
-            onClick={() => setView(option)}
+            onClick={() => {
+              if (view === 'secret') {
+                lock();
+                if (option === 'links') setView('links');
+              } else {
+                setView(option);
+              }
+            }}
           >
             <span className="key-hint">{index + 4}</span>
             <span>{option === 'history' ? 'History' : 'Links'}</span>
@@ -402,7 +565,7 @@ export default function SearchApp() {
               ))}
             </div>
           </>
-        ) : (
+        ) : view === 'links' ? (
           <>
             <div className="add-form">
               <input
@@ -482,6 +645,86 @@ export default function SearchApp() {
               ))}
             </div>
           </>
+        ) : (
+          <div className="secret-panel" aria-label="Secret links">
+            <div className="add-form">
+              <input
+                ref={secretLabelRef}
+                className="add-input"
+                type="text"
+                placeholder="Name"
+                aria-label="Secret bookmark name"
+                value={secretLabel}
+                onChange={(event) => setSecretLabel(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void addSecretBookmark();
+                  }
+                }}
+              />
+              <div className="add-url-row">
+                <input
+                  className="add-input"
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://site.com"
+                  aria-label="Secret bookmark address"
+                  value={secretUrl}
+                  onChange={(event) => setSecretUrl(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      void addSecretBookmark();
+                    }
+                  }}
+                />
+                <button className="add-btn" type="button" onClick={() => void addSecretBookmark()}>
+                  Add
+                </button>
+              </div>
+            </div>
+            <div className="list" aria-label="Secret bookmarks">
+              {!secretLoading && secretBookmarks.length === 0 && (
+                <div className="empty">No secret links.</div>
+              )}
+              {secretBookmarks.map((item, index) => (
+                <div className="row" key={item.id}>
+                  <button
+                    ref={(node) => {
+                      secretRefs.current[index] = node;
+                    }}
+                    className="row-main bookmark"
+                    type="button"
+                    title={item.url}
+                    onClick={() => openSecretBookmark(item)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        focusRow(secretRefs.current, index + 1);
+                      } else if (event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        if (index === 0) secretLabelRef.current?.focus();
+                        else focusRow(secretRefs.current, index - 1);
+                      }
+                    }}
+                  >
+                    <span className="bm-label">{item.label}</span>
+                    <span className="bm-host">{hostnameOf(item.url)}</span>
+                  </button>
+                  <button
+                    className="icon-btn danger"
+                    type="button"
+                    title="Delete"
+                    aria-label={`Delete secret bookmark ${item.label}`}
+                    onClick={() => void removeSecretBookmark(item.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </main>
