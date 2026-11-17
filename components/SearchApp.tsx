@@ -192,14 +192,17 @@ export default function SearchApp() {
     setCommandArmed(armed);
   };
 
-  /** 1-3 select the search mode, 4-5 select the panel. */
+  /** 1-3 select the search mode, 4-5 select the panel, then focus its first control. */
   const applyShortcut = useCallback((digit: number) => {
     if (digit >= 1 && digit <= 3) {
       setEngine(ENGINES[digit - 1]);
+      focusLater(() => searchRef.current);
     } else if (digit === 4) {
       setView('history');
+      focusLater(() => searchRef.current);
     } else if (digit === 5) {
       setView('links');
+      focusLater(() => labelRef.current);
     }
   }, []);
 
