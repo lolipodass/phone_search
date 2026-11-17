@@ -97,6 +97,7 @@ button {
   font-size: 0.85em;
   color: var(--muted);
   background: var(--panel);
+  border: 0;
   user-select: none;
   white-space: nowrap;
 }
@@ -107,19 +108,25 @@ button {
   font-weight: 700;
 }
 
-.seg input,
-.view input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
+.key-hint {
+  display: inline-block;
+  margin-right: 3px;
+  padding: 0 2px;
+  font-size: 0.8em;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 2px;
 }
 
-.seg:focus-within,
-.view:focus-within {
-  outline: 2px solid var(--focus);
+.seg.active .key-hint,
+.view.active .key-hint {
+  color: inherit;
+  border-color: currentColor;
+}
+
+.seg:focus-visible,
+.view:focus-visible {
   outline-offset: -2px;
-  z-index: 1;
 }
 
 .search-row {
@@ -181,6 +188,7 @@ button {
   font-size: 0.85em;
   color: var(--muted);
   background: var(--panel);
+  border: 0;
   user-select: none;
 }
 

@@ -22,11 +22,13 @@ export default function SearchApp() {
   const [urlInput, setUrlInput] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [commandArmed, setCommandArmed] = useState(false);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const labelRef = useRef<HTMLInputElement>(null);
   const historyRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const bookmarkRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const commandArmedRef = useRef(false);
 
   /** Wait one tick so a focus target exists after a view switch re-renders. */
   const focusLater = (getNode: () => HTMLElement | null | undefined) => {
@@ -185,6 +187,22 @@ export default function SearchApp() {
     focusLater(() => historyRefs.current[index] ?? null);
   };
 
+  const setCommandArmedState = (armed: boolean) => {
+    commandArmedRef.current = armed;
+    setCommandArmed(armed);
+  };
+
+  /** 1-3 select the search mode, 4-5 select the panel. */
+  const applyShortcut = useCallback((digit: number) => {
+    if (digit >= 1 && digit <= 3) {
+      setEngine(ENGINES[digit - 1]);
+    } else if (digit === 4) {
+      setView('history');
+    } else if (digit === 5) {
+      setView('links');
+    }
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -192,29 +210,57 @@ export default function SearchApp() {
         target?.tagName === 'INPUT' ||
         target?.tagName === 'TEXTAREA' ||
         target?.isContentEditable === true;
+      const key = event.key;
 
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+      // Arm a one-shot command prefix. Needed while typing so digits stay usable
+      // as normal characters in a search query.
+      if (key === '*' || key === '#') {
+        event.preventDefault();
+        setCommandArmedState(true);
+        setMessage('Command: press 1-5');
+        return;
+      }
+
+      if (commandArmedRef.current) {
+        if (/^[1-5]$/.test(key)) {
+          event.preventDefault();
+          applyShortcut(Number(key));
+        }
+        setCommandArmedState(false);
+        return;
+      }
+
+      // Feature phones cannot always focus the buttons, so digits also work
+      // directly whenever a text field is not being edited.
+      if (/^[1-5]$/.test(key) && !editing) {
+        event.preventDefault();
+        applyShortcut(Number(key));
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && key.toLowerCase() === 'k') {
         event.preventDefault();
         goToHistoryRow(-1);
         focusLater(() => searchRef.current);
         return;
       }
 
-      if (event.key === '/' && !editing) {
+      if (key === '/' && !editing) {
         event.preventDefault();
         goToHistoryRow(-1);
         focusLater(() => searchRef.current);
         return;
       }
 
-      if (event.key === 'Escape' && editing) {
-        (target as HTMLInputElement).blur();
+      if (key === 'Escape') {
+        if (editing) (target as HTMLInputElement).blur();
+        if (commandArmedRef.current) setCommandArmedState(false);
       }
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [applyShortcut]);
 
   return (
     <main className="app">
@@ -224,18 +270,19 @@ export default function SearchApp() {
 
       <div className="header">
         <span className="brand">Cloud Search</span>
-        <div className="segment" role="radiogroup" aria-label="Search mode">
-          {ENGINES.map((option) => (
-            <label key={option} className={`seg${engine === option ? ' active' : ''}`}>
-              <input
-                type="radio"
-                name="engine"
-                value={option}
-                checked={engine === option}
-                onChange={() => setEngine(option)}
-              />
+        <div className="segment" role="group" aria-label="Search mode">
+          {ENGINES.map((option, index) => (
+            <button
+              key={option}
+              type="button"
+              className={`seg${engine === option ? ' active' : ''}`}
+              aria-pressed={engine === option}
+              aria-keyshortcuts={String(index + 1)}
+              onClick={() => setEngine(option)}
+            >
+              <span className="key-hint">{index + 1}</span>
               <span>{ENGINE_LABEL[option]}</span>
-            </label>
+            </button>
           ))}
         </div>
       </div>
@@ -273,23 +320,24 @@ export default function SearchApp() {
         </button>
       </form>
 
-      <div className="hint">/ focus · ↑↓ history · Enter open · Esc blur</div>
+      <div className="hint">1-3 mode · 4/5 view · * + digit in field · / focus</div>
       <div className="status" role="status" aria-live="polite">
-        {loading ? 'Loading…' : message}
+        {commandArmed ? 'Command: press 1-5' : loading ? 'Loading…' : message}
       </div>
 
-      <div className="segment views" role="radiogroup" aria-label="Panel">
-        {(['history', 'links'] as View[]).map((option) => (
-          <label key={option} className={`view${view === option ? ' active' : ''}`}>
-            <input
-              type="radio"
-              name="view"
-              value={option}
-              checked={view === option}
-              onChange={() => setView(option)}
-            />
+      <div className="segment views" role="group" aria-label="Panel">
+        {(['history', 'links'] as View[]).map((option, index) => (
+          <button
+            key={option}
+            type="button"
+            className={`view${view === option ? ' active' : ''}`}
+            aria-pressed={view === option}
+            aria-keyshortcuts={String(index + 4)}
+            onClick={() => setView(option)}
+          >
+            <span className="key-hint">{index + 4}</span>
             <span>{option === 'history' ? 'History' : 'Links'}</span>
-          </label>
+          </button>
         ))}
       </div>
 

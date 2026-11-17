@@ -52,13 +52,19 @@ Open http://localhost:3000.
 
 | Key | Action |
 | --- | --- |
+| `1` | DuckDuckGo mode |
+| `2` | Google mode |
+| `3` | Direct URL mode |
+| `4` | History panel |
+| `5` | Links panel |
+| `*`, then a digit | Same shortcuts while a text field is focused (so numbers can still be typed in queries) |
 | `Tab` | Move through every control in order |
 | `/` or `Ctrl/Cmd + K` | Focus the search box |
 | `↑` / `↓` | Walk through history (or bookmark) rows |
 | `Enter` | Run a search, open a bookmark, or submit a form |
-| `Esc` | Blur the current input |
+| `Esc` | Blur the current input / cancel a pending `*` command |
 
-The segmented controls (search mode, History/Links) also respond to arrow keys because they are radio groups. A skip link appears at the top when focused.
+Digits `1`-`5` work directly whenever focus is not in a text field. While typing a query, press `*` (or `#`) first to arm a one-shot command — the status line confirms it. The mode and panel selectors are plain buttons with visible number badges, so they also work by click/tap or Tab + Enter on feature phones. A skip link appears at the top when focused.
 
 ## Notes
 
