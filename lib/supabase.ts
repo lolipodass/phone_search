@@ -2,14 +2,26 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 let cached: SupabaseClient | null = null;
 
-/** Server-only Supabase client. The service-role key is never sent to the browser. */
+/**
+ * Server-only Supabase client. Accepts a new secret key, a legacy service-role
+ * key, or a publishable key. A publishable key runs as the `anon` Postgres role,
+ * so the tables need the permissive anon RLS policies from supabase/schema.sql.
+ */
 export function getSupabase(): SupabaseClient {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url =
+    process.env.SUPABASE_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    '';
+  const key =
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    '';
 
   if (!url || !key) {
     throw new Error(
-      'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY. See .env.local.example and README.md.',
+      'Missing Supabase URL or key. Set SUPABASE_URL + SUPABASE_SECRET_KEY, or NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY. See .env.local.example and README.md.',
     );
   }
 

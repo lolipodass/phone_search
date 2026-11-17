@@ -15,12 +15,20 @@ A tiny, keyboard-first search app for very small screens, hosted on Vercel.
 ### 1. Supabase
 
 1. Create a free project at [supabase.com](https://supabase.com).
-2. Open **SQL Editor → New query**, paste the contents of `supabase/schema.sql`, and run it.
-3. Go to **Project Settings → API** and copy:
-   - **Project URL** → `SUPABASE_URL`
-   - **service_role** key → `SUPABASE_SERVICE_ROLE_KEY`
+2. Open **SQL Editor → New query**, paste the contents of `supabase/schema.sql`, and run it. This creates the tables and the anon RLS policies.
+3. Go to **Project Settings → API Keys** (or the **Connect** dialog) and copy your keys.
 
-> The service-role key is server-only. It is used in API routes and never sent to the browser.
+The app accepts either key setup:
+
+| Setup | Environment variables |
+| --- | --- |
+| Secret key (recommended if available) | `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (`sb_secret_...`) |
+| Publishable key only | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (`sb_publishable_...`) |
+| Legacy keys | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
+
+A publishable key runs as the `anon` Postgres role, so it needs the anon policies from `supabase/schema.sql`. A secret key bypasses RLS. Both are read only in server API routes — neither key is required in client code.
+
+> New Supabase projects show `sb_publishable_...` / `sb_secret_...` keys. If you only see the publishable key, use Setup 2 above — no secret key is required.
 
 ### 2. Local development
 
@@ -37,7 +45,7 @@ Open http://localhost:3000.
 
 1. Push this folder to a GitHub repository.
 2. In Vercel, choose **Add New → Project** and import that repository.
-3. Add the environment variables `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+3. Add the environment variables from the table above — for example `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
 4. Deploy. Open the Vercel URL in your phone's cloud-apps service.
 
 ## Keyboard

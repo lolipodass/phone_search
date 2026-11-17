@@ -21,10 +21,31 @@ create index if not exists search_history_recent_idx
 create index if not exists bookmarks_recent_idx
   on public.bookmarks (created_at desc, id desc);
 
--- The app uses the service-role key in server API routes, which bypasses RLS.
--- Enabling RLS with no policies keeps anon/public clients out.
 alter table public.search_history enable row level security;
 alter table public.bookmarks enable row level security;
+
+-- A publishable key (sb_publishable_...) runs as the `anon` Postgres role.
+-- There is no login in this single-user app, so allow that role full access.
+-- A secret key (sb_secret_...) bypasses RLS entirely and needs no policies.
+drop policy if exists "anon_full_access_history" on public.search_history;
+create policy "anon_full_access_history"
+  on public.search_history
+  for all
+  to anon
+  using (true)
+  with check (true);
+
+drop policy if exists "anon_full_access_bookmarks" on public.bookmarks;
+create policy "anon_full_access_bookmarks"
+  on public.bookmarks
+  for all
+  to anon
+  using (true)
+  with check (true);
+
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.search_history to anon, authenticated;
+grant select, insert, update, delete on public.bookmarks to anon, authenticated;
 
 -- Keep only the newest KEEP rows so storage stays tiny.
 create or replace function public.prune_old_rows(p_table text, p_keep integer)
@@ -73,3 +94,7 @@ begin
   return v_row;
 end;
 $$;
+
+grant execute on function public.prune_old_rows(text, integer) to anon, authenticated;
+grant execute on function public.add_search(text, text) to anon, authenticated;
+grant execute on function public.add_bookmark(text, text) to anon, authenticated;
